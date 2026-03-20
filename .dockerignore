@@ -1,0 +1,7 @@
+tmp/
+*.db
+.env
+dev-config.yaml
+.git
+.github
+.claude

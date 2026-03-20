@@ -1,0 +1,53 @@
+package views
+
+import (
+	"github.com/camjac251/power-panel/components/dialog"
+	"github.com/camjac251/power-panel/components/toast"
+	"github.com/camjac251/power-panel/components/tooltip"
+)
+
+templ Layout(serverName string, version string) {
+	<!DOCTYPE html>
+	<html lang="en" class="dark">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="theme-color" content="#111113"/>
+			<meta name="color-scheme" content="dark"/>
+			<title>Power Panel - { serverName }</title>
+			<link rel="preload" href="/assets/fonts/geist-400.woff2" as="font" type="font/woff2" crossorigin/>
+			<link rel="preload" href="/assets/fonts/geist-500.woff2" as="font" type="font/woff2" crossorigin/>
+			<link rel="preload" href="/assets/fonts/geist-600.woff2" as="font" type="font/woff2" crossorigin/>
+			<link rel="stylesheet" href="/assets/css/styles.css"/>
+			@dialog.Script()
+			@toast.Script()
+			@tooltip.Script()
+		</head>
+		<body class="bg-background text-foreground min-h-screen flex items-start justify-center" style="touch-action: manipulation;">
+			<a
+				href="#main-content"
+				class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-card focus:text-foreground focus:ring-2 ring-ring focus:rounded-xl"
+			>
+				Skip to main content
+			</a>
+			<main id="main-content" class="w-full max-w-[420px] mx-auto px-4 py-8 sm:py-14">
+				{ children... }
+				if version != "" {
+					<p class="text-center text-xs text-muted-foreground/50 mt-6">{ version }</p>
+				}
+			</main>
+			<script src="/assets/js/htmx.min.js"></script>
+			<script src="/assets/js/htmx-sse.js"></script>
+			<script>
+				document.body.addEventListener("htmx:sseError", function() {
+					var el = document.getElementById("sse-error");
+					if (el) el.classList.remove("hidden");
+				});
+				document.body.addEventListener("htmx:sseOpen", function() {
+					var el = document.getElementById("sse-error");
+					if (el) el.classList.add("hidden");
+				});
+			</script>
+		</body>
+	</html>
+}

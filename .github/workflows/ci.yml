@@ -1,0 +1,47 @@
+# =============================================================================
+# CI - Continuous Integration
+# =============================================================================
+# Runs on pushes to main and pull requests. Lints, tests, and validates build.
+# Tool versions come from mise.toml (single source of truth).
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up mise
+        uses: jdx/mise-action@v2
+        with:
+          cache: true
+
+      - name: Generate
+        run: |
+          npm install --no-save tailwindcss
+          mise run generate && mise run css
+
+      - name: Test
+        run: mise run test:race
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2
+          only-new-issues: true

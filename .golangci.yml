@@ -1,0 +1,187 @@
+version: "2"
+
+run:
+  timeout: 3m
+  modules-download-mode: readonly
+
+formatters:
+  enable:
+    - goimports
+    - gofumpt
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/camjac251/power-panel
+    gofumpt:
+      module-path: github.com/camjac251/power-panel
+      extra-rules: true
+  exclusions:
+    generated: lax
+    paths:
+      - components/
+      - utils/
+
+linters:
+  default: none
+  enable:
+    # Core - catch real bugs
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+    # Security
+    - gosec
+
+    # Reliability
+    - bodyclose
+    - errorlint
+    - nilerr
+    - sqlclosecheck
+
+    # Code quality
+    - goconst
+    - gocritic
+    - unconvert
+    - unparam
+    - wastedassign
+
+    # Style
+    - copyloopvar
+    - durationcheck
+    - misspell
+    - whitespace
+    - forcetypeassert
+    - loggercheck
+    - noctx
+    - nolintlint
+    - predeclared
+    - revive
+    - sloglint
+    - usestdlibvars
+
+    # Complexity
+    - cyclop
+    - funlen
+    - gocognit
+    - nestif
+
+  settings:
+    cyclop:
+      max-complexity: 25
+
+    errcheck:
+      check-type-assertions: true
+      exclude-functions:
+        - (io.Closer).Close
+
+    funlen:
+      lines: 100
+      statements: 50
+      ignore-comments: true
+
+    gocognit:
+      min-complexity: 25
+
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+      disabled-checks:
+        - unnamedResult
+        - hugeParam
+
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+        - shadow
+
+    gosec:
+      excludes:
+        - G104  # Covered by errcheck
+        - G114  # Self-signed BMC certs are expected
+        - G115  # Integer overflow false positives
+      confidence: medium
+
+    misspell:
+      locale: US
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+
+    revive:
+      enable-all-rules: false
+      rules:
+        - name: context-as-argument
+          severity: error
+        - name: context-keys-type
+          severity: error
+        - name: early-return
+          severity: warning
+        - name: empty-block
+          severity: error
+        - name: error-naming
+          severity: error
+        - name: error-return
+          severity: error
+        - name: error-strings
+          severity: error
+        - name: identical-branches
+          severity: error
+        - name: increment-decrement
+          severity: error
+        - name: indent-error-flow
+          severity: warning
+        - name: receiver-naming
+          severity: warning
+        - name: redefines-builtin-id
+          severity: error
+        - name: unconditional-recursion
+          severity: error
+        - name: unreachable-code
+          severity: warning
+        - name: var-declaration
+          severity: warning
+        - name: waitgroup-by-value
+          severity: warning
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+
+    sloglint:
+      no-global: ""
+
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - std-error-handling
+    rules:
+      - path: '_test\.go'
+        linters:
+          - errcheck
+          - goconst
+          - funlen
+          - gocognit
+          - gosec
+      - path: '(components|utils)/'
+        linters:
+          - gocritic
+          - gocognit
+
+output:
+  formats:
+    text:
+      path: stdout
+      colors: true
+  show-stats: true
