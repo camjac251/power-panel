@@ -1,0 +1,584 @@
+package views
+
+import (
+	"fmt"
+	"github.com/camjac251/power-panel/components/button"
+	"github.com/camjac251/power-panel/components/dialog"
+	"github.com/camjac251/power-panel/components/icon"
+	"github.com/camjac251/power-panel/components/toast"
+	"github.com/camjac251/power-panel/components/tooltip"
+	"github.com/camjac251/power-panel/internal/bmc"
+	"github.com/camjac251/power-panel/internal/db"
+)
+
+type Capabilities struct {
+	GracefulShutdown bool
+	ForceOff         bool
+	ForceRestart     bool
+	HasWebUI         bool
+}
+
+type HomeData struct {
+	ServerName   string
+	Description  string
+	BMCURL       string
+	NoMachineURL string
+	Version      string
+	Status       bmc.Status
+	Events       []db.PowerEvent
+	Caps         Capabilities
+}
+
+templ Home(data HomeData) {
+	@Layout(data.ServerName, data.Version) {
+		<div id="sse-container" hx-ext="sse" sse-connect="/api/sse">
+			<div id="sse-error" class="hidden mb-3 px-4 py-2.5 rounded-xl bg-warning/10 text-warning text-sm text-center ring-1 ring-warning/20 ring-inset" role="alert">
+				Connection lost. Reconnecting...
+			</div>
+			<!-- Main glass card -->
+			<div class="glass rounded-2xl overflow-hidden">
+				<!-- Identity -->
+				<div class="px-5 pt-5 pb-4 flex items-start justify-between">
+					<div class="min-w-0">
+						<h1 class="text-base font-semibold text-foreground truncate">{ data.ServerName }</h1>
+						<p class="text-sm text-muted-foreground mt-0.5">{ data.Description }</p>
+					</div>
+					<div id="status-badge" sse-swap="status" hx-swap="innerHTML" class="shrink-0 ml-4 mt-0.5">
+						@StatusBadge(data.Status)
+					</div>
+				</div>
+
+				<!-- Power -->
+				<div class="px-5 pt-4 pb-6 flex flex-col items-center gap-5" id="power-display" sse-swap="power" hx-swap="innerHTML">
+					@PowerButton(data.Status)
+				</div>
+
+				<!-- Actions -->
+				<div class="px-5 pb-5" id="action-buttons" sse-swap="actions" hx-swap="innerHTML">
+					@ActionButtons(data.Status, data.NoMachineURL, data.Caps)
+				</div>
+			</div>
+
+			<!-- Sensors card -->
+			<div class="glass rounded-2xl overflow-hidden mt-3">
+				<div class="px-4 py-3 flex items-center justify-between">
+					<h2 class="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Sensors</h2>
+				</div>
+				<div class="px-4 pb-3" id="sensors-key" sse-swap="sensors-key" hx-swap="innerHTML">
+					@SensorsSkeleton()
+				</div>
+				<details class="group">
+					<summary class="px-4 py-3 text-[13px] text-muted-foreground cursor-pointer hover:text-foreground hover:bg-white/[0.06] flex items-center gap-1.5 border-t border-border focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:rounded-lg">
+						@icon.ChevronRight(icon.Props{Class: "w-3 h-3 group-open:rotate-90"})
+						All sensors
+					</summary>
+					<div class="px-4 pb-3 pt-1" id="sensors-all" sse-swap="sensors-all" hx-swap="innerHTML">
+						@AllSensors(bmc.SensorData{})
+					</div>
+				</details>
+			</div>
+
+			<!-- Activity card -->
+			<div class="glass rounded-2xl overflow-hidden mt-3">
+				<div class="px-4 py-3">
+					<h2 class="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Activity</h2>
+				</div>
+				<div
+					hx-get="/api/events/fragment"
+					hx-trigger="every 30s, refreshEvents from:body"
+					hx-swap="innerHTML"
+				>
+					@ActivityLog(data.Events)
+				</div>
+			</div>
+
+			<!-- Advanced -->
+			if data.Caps.ForceOff || data.Caps.ForceRestart || data.Caps.HasWebUI {
+				<details class="group glass rounded-2xl overflow-hidden mt-3">
+					<summary class="px-4 py-3 text-[13px] text-muted-foreground cursor-pointer hover:text-foreground hover:bg-white/[0.06] flex items-center gap-1.5 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:rounded-lg">
+						@icon.ChevronRight(icon.Props{Class: "w-3 h-3 group-open:rotate-90"})
+						Advanced
+					</summary>
+					<div class="px-4 pb-4 pt-1 flex flex-wrap gap-2">
+						if data.Caps.ForceOff {
+							@dialog.Trigger(dialog.TriggerProps{For: "forceoff-dialog"}) {
+								@button.Button(button.Props{
+									Variant:    button.VariantDestructive,
+									Type:       button.TypeButton,
+									Class:      "min-h-[44px] text-[13px] rounded-xl hover:bg-destructive/80 flex-1",
+									Attributes: templ.Attributes{"title": "Immediate power cut. Like holding the power button."},
+								}) {
+									Power Off
+								}
+							}
+						}
+						if data.Caps.ForceRestart {
+							@dialog.Trigger(dialog.TriggerProps{For: "reset-dialog"}) {
+								@button.Button(button.Props{
+									Variant:    button.VariantDestructive,
+									Type:       button.TypeButton,
+									Class:      "min-h-[44px] text-[13px] rounded-xl hover:bg-destructive/80 flex-1",
+									Attributes: templ.Attributes{"title": "Immediate hardware reset, bypasses OS. Risk of data corruption."},
+								}) {
+									Hard Reset
+								}
+							}
+						}
+						if data.Caps.HasWebUI {
+							@tooltip.Tooltip() {
+								@tooltip.Trigger() {
+									<a
+										href={ templ.SafeURL(data.BMCURL) }
+										target="_blank"
+										rel="noopener"
+										aria-label="Open BMC Web UI"
+										class="inline-flex items-center justify-center min-h-[44px] px-3 py-2 text-[13px] font-medium rounded-xl bg-white/[0.04] text-secondary-foreground hover:bg-white/[0.08] border border-border focus-visible:outline-hidden focus-visible:ring-2 ring-ring flex-1"
+									>
+										BMC UI
+										@icon.ExternalLink(icon.Props{Class: "w-3 h-3 ml-1.5 text-muted-foreground"})
+									</a>
+								}
+								@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionTop, ShowArrow: true}) {
+									Open hardware management console
+								}
+							}
+						}
+					</div>
+				</details>
+			}
+		</div>
+
+		<!-- Dialogs rendered once, outside SSE swap targets -->
+		@ShutdownDialog()
+		@RestartDialog()
+		@ForceOffDialog()
+		@HardResetDialog()
+
+		<div id="toast-container" aria-live="polite"></div>
+	}
+}
+
+templ StatusBadge(status bmc.Status) {
+	if status.PowerState == bmc.PowerOn && status.Reachable {
+		<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-success/12 text-success ring-1 ring-success/20 ring-inset">
+			<span class="w-1.5 h-1.5 rounded-full bg-success" aria-hidden="true"></span>
+			Online
+		</span>
+	} else if status.PowerState == bmc.PowerOn {
+		<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-warning/12 text-warning ring-1 ring-warning/20 ring-inset">
+			@icon.LoaderCircle(icon.Props{Class: "w-3 h-3 animate-spin"})
+			Booting
+		</span>
+	} else if status.PowerState == bmc.PoweringOn {
+		<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-warning/12 text-warning ring-1 ring-warning/20 ring-inset">
+			@icon.LoaderCircle(icon.Props{Class: "w-3 h-3 animate-spin"})
+			Powering On
+		</span>
+	} else if status.PowerState == bmc.ShuttingDown {
+		<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-warning/12 text-warning ring-1 ring-warning/20 ring-inset">
+			@icon.LoaderCircle(icon.Props{Class: "w-3 h-3 animate-spin"})
+			Shutting Down
+		</span>
+	} else if status.PowerState == bmc.Restarting {
+		<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-warning/12 text-warning ring-1 ring-warning/20 ring-inset">
+			@icon.LoaderCircle(icon.Props{Class: "w-3 h-3 animate-spin"})
+			Restarting
+		</span>
+	} else if status.PowerState == bmc.PowerOff {
+		<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-white/[0.04] text-muted-foreground ring-1 ring-white/10 ring-inset">
+			<span class="w-1.5 h-1.5 rounded-full bg-muted-foreground" aria-hidden="true"></span>
+			Offline
+		</span>
+	} else {
+		<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-white/[0.04] text-muted-foreground ring-1 ring-white/10 ring-inset">
+			<span class="w-1.5 h-1.5 rounded-full bg-muted-foreground" aria-hidden="true"></span>
+			Checking
+		</span>
+	}
+}
+
+templ PowerButton(status bmc.Status) {
+	if status.PowerState == bmc.PowerOn && status.Reachable {
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				<div class="w-[88px] h-[88px] rounded-full bg-success/8 ring-1 ring-success/20 ring-inset flex items-center justify-center" role="status" aria-label="Machine is online">
+					@icon.Power(icon.Props{Class: "w-7 h-7 text-success [stroke-width:1.5]"})
+				</div>
+			}
+			@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true}) {
+				Machine is online and reachable
+			}
+		}
+	} else if status.PowerState == bmc.PowerOn {
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				<div class="w-[88px] h-[88px] rounded-full bg-warning/8 ring-1 ring-warning/20 ring-inset flex items-center justify-center" role="status" aria-label="Machine is booting">
+					@icon.LoaderCircle(icon.Props{Class: "w-7 h-7 text-warning animate-spin [stroke-width:1.5]"})
+				</div>
+			}
+			@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true}) {
+				Powered on, waiting for OS to start
+			}
+		}
+	} else if status.PowerState == bmc.PowerOff {
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				<button
+					type="button"
+					aria-label="Power on the machine"
+					class="w-[88px] h-[88px] rounded-full bg-white/[0.04] ring-1 ring-white/10 ring-inset flex items-center justify-center hover:bg-white/[0.08] active:scale-95 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+					hx-post="/api/power/on"
+					hx-swap="none"
+				>
+					@icon.Power(icon.Props{Class: "w-7 h-7 text-muted-foreground [stroke-width:1.5]"})
+				</button>
+			}
+			@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true}) {
+				Power on via IPMI and Wake-on-LAN
+			}
+		}
+		<p class="text-sm text-muted-foreground" role="status">Press to power on</p>
+	} else if status.PowerState == bmc.PoweringOn || status.PowerState == bmc.ShuttingDown || status.PowerState == bmc.Restarting {
+		<div class="w-[88px] h-[88px] rounded-full bg-warning/8 ring-1 ring-warning/20 ring-inset flex items-center justify-center" role="status" aria-label={ transitionLabel(status.PowerState) }>
+			@icon.LoaderCircle(icon.Props{Class: "w-7 h-7 text-warning animate-spin [stroke-width:1.5]"})
+		</div>
+		<p class="text-sm text-warning" role="status">{ transitionLabel(status.PowerState) }...</p>
+	} else {
+		<div class="w-[88px] h-[88px] rounded-full bg-white/[0.02] ring-1 ring-white/[0.06] ring-inset flex items-center justify-center" aria-hidden="true">
+			@icon.Power(icon.Props{Class: "w-7 h-7 text-muted-foreground/40 [stroke-width:1.5]"})
+		</div>
+		<p class="text-sm text-muted-foreground" role="status">Connecting to BMC</p>
+	}
+}
+
+templ PowerButtonIgnite() {
+	<div class="w-[88px] h-[88px] rounded-full bg-success/8 ring-1 ring-success/20 ring-inset flex items-center justify-center" role="status" aria-label="Machine is powering on">
+		@icon.Power(icon.Props{Class: "w-7 h-7 text-success [stroke-width:1.5]"})
+	</div>
+}
+
+templ ActionButtons(status bmc.Status, noMachineURL string, caps Capabilities) {
+	if status.PowerState == bmc.PowerOn {
+		<div class="flex flex-col gap-2">
+			if noMachineURL != "" && status.Reachable {
+				@tooltip.Tooltip() {
+					@tooltip.Trigger() {
+						<a
+							href={ templ.SafeURL(noMachineURL) }
+							aria-label="Connect via NoMachine"
+							class="inline-flex items-center justify-center min-h-[44px] px-5 py-2.5 text-sm font-semibold rounded-xl bg-primary text-primary-foreground hover:bg-primary/85 focus-visible:outline-hidden focus-visible:ring-2 ring-ring ring-offset-2 ring-offset-background"
+						>
+							@icon.Monitor(icon.Props{Class: "w-4 h-4 mr-2"})
+							Connect
+						</a>
+					}
+					@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true}) {
+						Open NoMachine remote desktop
+					}
+				}
+			}
+			<div class="grid grid-cols-2 gap-2">
+				if caps.GracefulShutdown {
+					@dialog.Trigger(dialog.TriggerProps{For: "shutdown-dialog"}) {
+						@button.Button(button.Props{
+							Variant:    button.VariantSecondary,
+							Type:       button.TypeButton,
+							Class:      "w-full min-h-[44px] px-3 py-2 text-[13px] rounded-xl hover:bg-white/10",
+							Attributes: templ.Attributes{"title": "Graceful OS shutdown via ACPI"},
+						}) {
+							Shut Down
+						}
+					}
+				}
+				if caps.ForceRestart {
+					@dialog.Trigger(dialog.TriggerProps{For: "restart-dialog"}) {
+						@button.Button(button.Props{
+							Variant:    button.VariantSecondary,
+							Type:       button.TypeButton,
+							Class:      "w-full min-h-[44px] px-3 py-2 text-[13px] rounded-xl hover:bg-white/10",
+							Attributes: templ.Attributes{"title": "Immediate restart via IPMI"},
+						}) {
+							Restart
+						}
+					}
+				}
+			</div>
+		</div>
+	} else if status.PowerState == bmc.PowerOff {
+		<p class="text-sm text-muted-foreground text-center py-1">Machine is off. Press the power button to start.</p>
+	} else if status.PowerState == bmc.PoweringOn || status.PowerState == bmc.ShuttingDown || status.PowerState == bmc.Restarting {
+		<div class="h-1"></div>
+	} else {
+		<div class="h-1"></div>
+	}
+}
+
+templ ShutdownDialog() {
+	@dialog.Dialog(dialog.Props{ID: "shutdown-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "max-w-sm rounded-2xl"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Shut Down
+				}
+				@dialog.Description(dialog.DescriptionProps{Class: "text-base"}) {
+					The machine will shut down gracefully. Any unsaved work will be lost.
+				}
+			}
+			@dialog.Footer() {
+				@dialog.Close() {
+					@button.Button(button.Props{
+						Variant: button.VariantSecondary,
+						Type:    button.TypeButton,
+						Class:   "min-h-[44px] text-[13px] rounded-xl",
+					}) {
+						Cancel
+					}
+				}
+				@dialog.Close() {
+					@button.Button(button.Props{
+						Variant:    button.VariantDestructive,
+						Type:       button.TypeButton,
+						Class:      "min-h-[44px] text-[13px] rounded-xl",
+						Attributes: templ.Attributes{"hx-post": "/api/power/off", "hx-swap": "none"},
+					}) {
+						Shut Down
+					}
+				}
+			}
+		}
+	}
+}
+
+templ RestartDialog() {
+	@dialog.Dialog(dialog.Props{ID: "restart-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "max-w-sm rounded-2xl"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Restart
+				}
+				@dialog.Description(dialog.DescriptionProps{Class: "text-base"}) {
+					The machine will restart. This may take a few minutes.
+				}
+			}
+			@dialog.Footer() {
+				@dialog.Close() {
+					@button.Button(button.Props{
+						Variant: button.VariantSecondary,
+						Type:    button.TypeButton,
+						Class:   "min-h-[44px] text-[13px] rounded-xl",
+					}) {
+						Cancel
+					}
+				}
+				@dialog.Close() {
+					@button.Button(button.Props{
+						Variant:    button.VariantDefault,
+						Type:       button.TypeButton,
+						Class:      "min-h-[44px] text-[13px] rounded-xl",
+						Attributes: templ.Attributes{"hx-post": "/api/power/cycle", "hx-swap": "none"},
+					}) {
+						Restart
+					}
+				}
+			}
+		}
+	}
+}
+
+templ ForceOffDialog() {
+	@dialog.Dialog(dialog.Props{ID: "forceoff-dialog", DisableClickAway: true}) {
+		@dialog.Content(dialog.ContentProps{Class: "max-w-sm rounded-2xl"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Power Off
+				}
+				@dialog.Description(dialog.DescriptionProps{Class: "text-base"}) {
+					This will immediately cut power. Like holding the power button. Data corruption is possible.
+				}
+			}
+			@dialog.Footer() {
+				@dialog.Close() {
+					@button.Button(button.Props{
+						Variant: button.VariantSecondary,
+						Type:    button.TypeButton,
+						Class:   "min-h-[44px] text-[13px] rounded-xl",
+					}) {
+						Cancel
+					}
+				}
+				@dialog.Close() {
+					@button.Button(button.Props{
+						Variant:    button.VariantDestructive,
+						Type:       button.TypeButton,
+						Class:      "min-h-[44px] text-[13px] rounded-xl",
+						Attributes: templ.Attributes{"hx-post": "/api/power/forceoff", "hx-swap": "none"},
+					}) {
+						Power Off
+					}
+				}
+			}
+		}
+	}
+}
+
+templ HardResetDialog() {
+	@dialog.Dialog(dialog.Props{ID: "reset-dialog", DisableClickAway: true}) {
+		@dialog.Content(dialog.ContentProps{Class: "max-w-sm rounded-2xl"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Hard Reset
+				}
+				@dialog.Description(dialog.DescriptionProps{Class: "text-base"}) {
+					This will forcefully restart the machine immediately. Data corruption is possible.
+				}
+			}
+			@dialog.Footer() {
+				@dialog.Close() {
+					@button.Button(button.Props{
+						Variant: button.VariantSecondary,
+						Type:    button.TypeButton,
+						Class:   "min-h-[44px] text-[13px] rounded-xl",
+					}) {
+						Cancel
+					}
+				}
+				@dialog.Close() {
+					@button.Button(button.Props{
+						Variant:    button.VariantDestructive,
+						Type:       button.TypeButton,
+						Class:      "min-h-[44px] text-[13px] rounded-xl",
+						Attributes: templ.Attributes{"hx-post": "/api/power/reset", "hx-swap": "none"},
+					}) {
+						Hard Reset
+					}
+				}
+			}
+		}
+	}
+}
+
+templ KeySensors(sensors bmc.SensorData) {
+	<div class="surface-inset overflow-hidden flex flex-wrap">
+		if sensors.PowerWatts > 0 {
+			@SensorCell("Power", fmt.Sprintf("%.0f W", sensors.PowerWatts), "normal")
+		}
+		for _, t := range sensors.Temperatures {
+			if t.Celsius > 0 && isKeySensor(t.Name) {
+				@SensorCell(cleanSensorName(t.Name), fmt.Sprintf("%.0f\u00b0C", t.Celsius), tempSeverity(t.Celsius))
+			}
+		}
+		for _, f := range sensors.Fans {
+			if f.RPM > 0 && isKeySensor(f.Name) {
+				@SensorCell(cleanSensorName(f.Name), fmt.Sprintf("%d RPM", f.RPM), "normal")
+			}
+		}
+	</div>
+}
+
+templ AllSensors(sensors bmc.SensorData) {
+	<div class="surface-inset overflow-hidden flex flex-wrap">
+		for _, t := range sensors.Temperatures {
+			if t.Celsius > 0 && !isKeySensor(t.Name) {
+				@SensorCell(cleanSensorName(t.Name), fmt.Sprintf("%.0f\u00b0C", t.Celsius), tempSeverity(t.Celsius))
+			}
+		}
+		for _, f := range sensors.Fans {
+			if f.RPM > 0 && !isKeySensor(f.Name) {
+				@SensorCell(cleanSensorName(f.Name), fmt.Sprintf("%d RPM", f.RPM), "normal")
+			}
+		}
+	</div>
+}
+
+templ SensorCell(label string, value string, severity string) {
+	<div class="px-3.5 py-2.5 min-w-[calc(33.333%)] flex-1 border-b border-r border-border/50 last:border-r-0">
+		<div class="text-xs font-medium text-muted-foreground uppercase tracking-wider leading-none">{ label }</div>
+		<div class={
+			"text-lg font-semibold font-mono mt-1.5 leading-none tabular-nums",
+			templ.KV("text-foreground", severity == "normal"),
+			templ.KV("text-warning", severity == "warm"),
+			templ.KV("text-destructive", severity == "hot"),
+		}>
+			{ value }
+		</div>
+	</div>
+}
+
+templ ActivityLog(events []db.PowerEvent) {
+	if len(events) == 0 {
+		<div class="px-4 py-5 text-center">
+			<p class="text-[13px] text-muted-foreground">No activity yet</p>
+		</div>
+	} else {
+		<ul role="list">
+			for _, ev := range events {
+				<li class="px-4 py-2.5 flex items-center justify-between gap-3 border-t border-border first:border-t-0">
+					<div class="flex items-center gap-2.5 min-w-0">
+						<span class={
+							"w-1.5 h-1.5 rounded-full shrink-0",
+							templ.KV("bg-success", ev.Action == "power_on"),
+							templ.KV("bg-destructive", ev.Action == "power_off" || ev.Action == "power_forceoff" || ev.Action == "power_reset"),
+							templ.KV("bg-primary", ev.Action == "power_cycle"),
+						} aria-hidden="true"></span>
+						<span class="text-[13px] text-foreground font-medium">{ FormatAction(ev.Action) }</span>
+						<span class="text-xs text-muted-foreground truncate">{ ev.UserLogin }</span>
+					</div>
+					<time class="text-xs text-muted-foreground whitespace-nowrap font-mono tabular-nums">
+						{ formatTimeAgo(ev.Timestamp) }
+					</time>
+				</li>
+			}
+		</ul>
+	}
+}
+
+templ SensorsSkeleton() {
+	<div class="surface-inset overflow-hidden flex flex-wrap">
+		for i := 0; i < 3; i++ {
+			<div class="px-3.5 py-2.5 min-w-[calc(33.333%)] flex-1 border-r border-border/50 last:border-r-0" aria-busy="true">
+				<div class="h-2 w-10 rounded bg-white/[0.06] mb-2.5"></div>
+				<div class="h-5 w-14 rounded bg-white/[0.06]"></div>
+			</div>
+		}
+	</div>
+}
+
+templ FragmentError(message string, retryURL string) {
+	<div class="px-4 py-5 text-center" role="alert">
+		<p class="text-[13px] text-muted-foreground">{ message }</p>
+		if retryURL != "" {
+			<button
+				type="button"
+				class="mt-2 text-xs text-primary hover:text-primary/80 focus-visible:outline-hidden focus-visible:ring-2 ring-ring rounded px-2 py-1 min-h-[44px] inline-flex items-center"
+				hx-get={ retryURL }
+				hx-swap="innerHTML"
+				hx-target="closest div"
+				aria-label="Retry loading"
+			>
+				Retry
+			</button>
+		}
+	</div>
+}
+
+templ ToastSuccess(message string) {
+	@toast.Toast(toast.Props{
+		Title:       message,
+		Variant:     toast.VariantSuccess,
+		Position:    toast.PositionBottomRight,
+		Duration:    3000,
+		Dismissible: true,
+		Icon:        true,
+	})
+}
+
+templ ToastError(message string) {
+	@toast.Toast(toast.Props{
+		Title:       message,
+		Variant:     toast.VariantError,
+		Position:    toast.PositionBottomRight,
+		Duration:    5000,
+		Dismissible: true,
+		Icon:        true,
+	})
+}

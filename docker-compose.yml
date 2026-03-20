@@ -1,0 +1,13 @@
+services:
+  power-panel:
+    image: ghcr.io/camjac251/power-panel:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - IPMI_PASS=${IPMI_PASS}
+    volumes:
+      - data:/var/lib/power-panel
+      - ./config.yaml:/etc/power-panel/config.yaml:ro
+volumes:
+  data:
