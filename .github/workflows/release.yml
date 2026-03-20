@@ -1,0 +1,100 @@
+# =============================================================================
+# Release
+# =============================================================================
+# Triggered on every push to main. release-please manages the release lifecycle:
+# opens/updates a Release PR, and on merge creates a git tag + GitHub Release.
+# When a release is created, builds cross-platform binaries and uploads them.
+# =============================================================================
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # release-please: manage Release PR and create releases
+  # ---------------------------------------------------------------------------
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - name: Run release-please
+        uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: .github/release-please-config.json
+          manifest-file: .github/.release-please-manifest.json
+
+  # ---------------------------------------------------------------------------
+  # build: cross-compile for all platforms and upload to GitHub Release
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build & Publish
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install templ
+        run: go install github.com/a-h/templ/cmd/templ@latest
+
+      - name: Install Tailwind CSS v4
+        run: npm install -g @tailwindcss/cli
+
+      - name: Generate
+        run: |
+          templ generate
+          tailwindcss -i ./input.css -o ./assets/css/styles.css --minify
+
+      - name: Build all platforms
+        env:
+          VERSION: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          LDFLAGS="-s -w -X main.version=${VERSION}"
+          declare -A TARGETS=(
+            [linux-amd64]="linux/amd64/"
+            [linux-arm64]="linux/arm64/"
+            [linux-armv7]="linux/arm/7"
+            [linux-armv6]="linux/arm/6"
+            [darwin-arm64]="darwin/arm64/"
+            [darwin-amd64]="darwin/amd64/"
+            [windows-amd64]="windows/amd64/"
+          )
+
+          mkdir -p dist
+          for name in "${!TARGETS[@]}"; do
+            IFS='/' read -r os arch arm <<< "${TARGETS[$name]}"
+            output="power-panel-${name}"
+            [ "$os" = "windows" ] && output="${output}.exe"
+            echo "Building ${output}..."
+            GOOS="$os" GOARCH="$arch" GOARM="${arm}" CGO_ENABLED=0 \
+              go build -ldflags="$LDFLAGS" -o "dist/${output}" .
+          done
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          files: dist/power-panel-*
+          fail_on_unmatched_files: true

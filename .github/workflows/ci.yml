@@ -1,0 +1,50 @@
+# =============================================================================
+# CI - Continuous Integration
+# =============================================================================
+# Runs on pushes to main and pull requests. Lints, tests, and validates build.
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install templ
+        run: go install github.com/a-h/templ/cmd/templ@latest
+
+      - name: Install Tailwind CSS v4
+        run: npm install -g @tailwindcss/cli
+
+      - name: Generate
+        run: |
+          templ generate
+          tailwindcss -i ./input.css -o ./assets/css/styles.css --minify
+
+      - name: Test
+        run: go test -race ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2

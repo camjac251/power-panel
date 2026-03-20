@@ -1,0 +1,23 @@
+server:
+  name: my-server
+  description: My Workstation
+  nomachine_url: "nxs://192.0.2.10"
+  # ping_host: "192.0.2.10:4000"  # host:port to check OS reachability (default port 22). Omit to assume reachable when powered on.
+  # bmc_url: "https://192.0.2.1"  # BMC web UI URL. Omit to hide button.
+
+ipmi:
+  host: 192.0.2.1
+  username: admin
+  insecure: true
+  # password from IPMI_PASS env var
+
+wol:
+  mac: "00:00:5E:00:53:01"
+  broadcast: "192.0.2.255"
+
+power:
+  cooldown_seconds: 30
+  boot_timeout_seconds: 120
+  poll_interval_seconds: 5
+
+data_dir: /var/lib/power-panel

@@ -1,0 +1,15 @@
+power-panel
+power-panel-arm64
+tmp/
+*.db
+*.db-wal
+*.db-shm
+*_templ.go
+assets/css/styles.css
+node_modules/
+package-lock.json
+.env
+dev-config.yaml
+coverage.out
+*.prof
+vendor/
