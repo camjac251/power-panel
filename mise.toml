@@ -1,0 +1,101 @@
+min_version = "2025.12.0"
+
+[tools]
+go = "1.26"
+"aqua:a-h/templ" = "latest"
+"npm:@tailwindcss/cli" = "4"
+"aqua:air-verse/air" = "latest"
+"aqua:golangci/golangci-lint" = "2"
+"go:github.com/templui/templui/cmd/templui" = "latest"
+"go:mvdan.cc/gofumpt" = "latest"
+"aqua:evilmartians/lefthook" = "latest"
+
+[env]
+BINARY = "power-panel"
+_.file = ".env"
+
+# ── Setup ────────────────────────────────────────
+
+[tasks.setup]
+description = "Install dependencies and hooks"
+run = """
+go mod tidy
+lefthook install
+"""
+
+# ── Generate ─────────────────────────────────────
+
+[tasks.generate]
+description = "Generate templ Go code from .templ files"
+run = "templ generate"
+
+[tasks.css]
+description = "Build Tailwind CSS v4"
+run = "NODE_PATH=$(dirname $(which tailwindcss))/../node_modules tailwindcss -i ./input.css -o ./assets/css/styles.css --minify"
+
+# ── Build ────────────────────────────────────────
+
+[tasks.build]
+description = "Production build (generate + css + compile)"
+depends = ["generate", "css"]
+run = 'go build -ldflags="-s -w" -o $BINARY .'
+
+[tasks."build:arm64"]
+description = "Cross-compile for ARM64"
+depends = ["generate", "css"]
+run = 'GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o ${BINARY}-arm64 .'
+
+# ── Deploy ───────────────────────────────────────
+
+[tasks.deploy]
+description = "Deploy to target host via SSH (DEPLOY_HOST, DEPLOY_ARCH)"
+depends = ["build:arm64"]
+run = """
+DEPLOY_HOST="${DEPLOY_HOST:-power-panel}"
+scp ${BINARY}-arm64 ${DEPLOY_HOST}:/opt/power-panel/power-panel
+ssh ${DEPLOY_HOST} 'sudo systemctl restart power-panel'
+"""
+
+# ── Development ──────────────────────────────────
+
+[tasks.dev]
+description = "Start development server with hot reload (4 parallel watchers)"
+run = """
+templ generate --watch --proxy="http://localhost:8080" --open-browser=false &
+air &
+NODE_PATH=$(dirname $(which tailwindcss))/../node_modules tailwindcss -i ./input.css -o ./assets/css/styles.css --watch &
+air \
+  --build.cmd "templ generate --notify-proxy" \
+  --build.bin "true" \
+  --build.delay "100" \
+  --build.include_dir "assets" \
+  --build.include_ext "js,css" &
+wait
+"""
+
+# ── Quality ──────────────────────────────────────
+
+[tasks.fmt]
+description = "Auto-format Go code"
+run = "golangci-lint fmt ./..."
+
+[tasks.lint]
+description = "Run golangci-lint"
+run = "golangci-lint run"
+
+[tasks.test]
+description = "Run tests"
+run = "go test ./..."
+
+[tasks."test:race"]
+description = "Run tests with race detection"
+run = "go test -race ./..."
+
+# ── Utilities ────────────────────────────────────
+
+[tasks.clean]
+description = "Remove build artifacts"
+run = """
+rm -f $BINARY ${BINARY}-arm64
+rm -rf tmp/
+"""
