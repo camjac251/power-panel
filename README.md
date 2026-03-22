@@ -125,14 +125,22 @@ This proxies `https://<hostname>.<tailnet>/` to `localhost:8080`. Tailscale inje
 
 ### Docker
 
+Multi-arch images (amd64, arm64) are published to GHCR on every release.
+
 ```bash
-docker build -t power-panel .
 docker run -d \
   -e IPMI_PASS=your-password \
   -v power-panel-data:/var/lib/power-panel \
   -v /path/to/config.yaml:/etc/power-panel/config.yaml \
   -p 8080:8080 \
-  power-panel
+  ghcr.io/camjac251/power-panel:latest
+```
+
+Or with docker compose:
+
+```bash
+cp deploy/config.example.yaml config.yaml  # edit this
+IPMI_PASS=your-password docker compose up -d
 ```
 
 ### Development
