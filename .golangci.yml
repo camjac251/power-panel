@@ -178,6 +178,11 @@ linters:
         linters:
           - gocritic
           - gocognit
+      # URLs are built from const repo slug + release tag, not user input
+      - path: 'internal/updater/'
+        linters:
+          - gosec
+        text: 'G704'
 
 output:
   formats:
