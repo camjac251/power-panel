@@ -20,4 +20,8 @@ power:
   boot_timeout_seconds: 120
   poll_interval_seconds: 5
 
+# update:
+#   enabled: true       # check for updates (default: true, ignored in Docker)
+#   auto_apply: true    # apply updates automatically (default: true)
+
 data_dir: /var/lib/power-panel

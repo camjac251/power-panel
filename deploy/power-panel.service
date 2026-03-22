@@ -13,6 +13,7 @@ WorkingDirectory=/opt/power-panel
 DynamicUser=yes
 UMask=0077
 StateDirectory=power-panel
+ReadWritePaths=/opt/power-panel
 
 # Security hardening
 NoNewPrivileges=yes

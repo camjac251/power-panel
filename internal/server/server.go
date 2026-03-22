@@ -15,6 +15,7 @@ import (
 	"github.com/camjac251/power-panel/internal/bmc"
 	"github.com/camjac251/power-panel/internal/config"
 	"github.com/camjac251/power-panel/internal/db"
+	"github.com/camjac251/power-panel/internal/updater"
 	"github.com/camjac251/power-panel/views"
 )
 
@@ -26,6 +27,7 @@ type Server struct {
 	wol        *bmc.WoLClient
 	assets     fs.FS
 	version    string
+	updater    *updater.Updater // nil if in container or dev mode
 	mux        *http.ServeMux
 	lastAction time.Time
 	mu         sync.Mutex
@@ -40,7 +42,7 @@ type Server struct {
 	notifyMu sync.Mutex
 }
 
-func New(cfg *config.Config, store *db.Store, bmcClient *bmc.Client, wolClient *bmc.WoLClient, assets fs.FS, version string) *Server {
+func New(cfg *config.Config, store *db.Store, bmcClient *bmc.Client, wolClient *bmc.WoLClient, assets fs.FS, version string, upd *updater.Updater) *Server {
 	s := &Server{
 		cfg:      cfg,
 		store:    store,
@@ -49,6 +51,7 @@ func New(cfg *config.Config, store *db.Store, bmcClient *bmc.Client, wolClient *
 		wol:      wolClient,
 		assets:   assets,
 		version:  version,
+		updater:  upd,
 		mux:      http.NewServeMux(),
 		notifyCh: make(chan struct{}),
 	}
@@ -80,6 +83,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/sensors/key", s.handleKeySensorsFragment)
 	s.mux.HandleFunc("GET /api/sensors/all", s.handleAllSensorsFragment)
 	s.mux.HandleFunc("GET /api/events/fragment", s.handleEventsFragment)
+
+	// Update
+	s.mux.HandleFunc("GET /api/update/status", s.handleUpdateStatus)
+	s.mux.HandleFunc("POST /api/update/check", s.requireHTMX(s.handleUpdateCheck))
+	s.mux.HandleFunc("POST /api/update/apply", s.requireHTMX(s.handleUpdateApply))
 
 	// SSE
 	s.mux.HandleFunc("GET /api/sse", s.handleSSE)
@@ -447,4 +455,43 @@ func (s *Server) handlePowerAction(action string, fn func() error) http.HandlerF
 
 		_ = views.ToastSuccess(fmt.Sprintf("%s command sent", views.FormatAction(action))).Render(r.Context(), w)
 	}
+}
+
+func (s *Server) updateStatus() updater.UpdateStatus {
+	if s.updater == nil {
+		return updater.UpdateStatus{
+			CurrentVersion: s.version,
+			InContainer:    updater.InContainer(),
+		}
+	}
+	return s.updater.Status()
+}
+
+func (s *Server) handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
+	_ = views.UpdateBanner(s.updateStatus()).Render(r.Context(), w)
+}
+
+func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	if s.updater == nil {
+		_ = views.UpdateBanner(s.updateStatus()).Render(r.Context(), w)
+		return
+	}
+	_ = s.updater.Check(r.Context())
+	_ = views.UpdateBanner(s.updateStatus()).Render(r.Context(), w)
+}
+
+func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
+	if s.updater == nil {
+		_ = views.UpdateBanner(s.updateStatus()).Render(r.Context(), w)
+		return
+	}
+	go func() {
+		if err := s.updater.Apply(context.Background()); err != nil {
+			slog.Error("manual update apply failed", "error", err)
+		}
+	}()
+	// Return the applying state immediately
+	status := s.updateStatus()
+	status.Applying = true
+	_ = views.UpdateBanner(status).Render(r.Context(), w)
 }

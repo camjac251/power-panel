@@ -30,6 +30,7 @@ Deploy it anywhere you can reach your BMC.
 | **Audit Log** | Every power action recorded with user, duration, and outcome in SQLite |
 | **Transition States** | Instant UI feedback (Powering On, Shutting Down, Restarting) that auto-clears on BMC confirmation |
 | **Action Cooldown** | Configurable cooldown prevents accidental rapid-fire commands |
+| **Auto-Updates** | Checks GitHub Releases, verifies SHA256 digest, replaces binary, restarts via systemd. Configurable. |
 | **Hardened Service** | systemd with DynamicUser, strict sandboxing, empty CapabilityBoundingSet |
 | **Zero JS Build Step** | Go + [templ](https://templ.guide) + [htmx](https://htmx.org) + [Tailwind v4](https://tailwindcss.com) |
 
@@ -183,6 +184,10 @@ power:
   boot_timeout_seconds: 120
   poll_interval_seconds: 5
 
+# update:
+#   enabled: true       # check for updates (default: true, ignored in Docker)
+#   auto_apply: true    # apply updates automatically (default: true)
+
 data_dir: /var/lib/power-panel
 ```
 
@@ -202,7 +207,8 @@ internal/
   config/            YAML config, env var loading, validation
   db/                SQLite audit log (pure Go, modernc driver)
   server/            HTTP routes, SSE handler, power action handlers
-views/               templ templates (home page, layout, helpers)
+  updater/           Self-update from GitHub Releases with digest verification
+views/               templ templates (home page, layout, update, helpers)
 components/          templUI components (button, dialog, icon, toast, tooltip)
 assets/              Embedded static files (fonts, JS, generated CSS)
 deploy/              systemd service + example config

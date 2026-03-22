@@ -15,6 +15,7 @@ import (
 	"github.com/camjac251/power-panel/internal/config"
 	"github.com/camjac251/power-panel/internal/db"
 	"github.com/camjac251/power-panel/internal/server"
+	"github.com/camjac251/power-panel/internal/updater"
 )
 
 var version = "dev"
@@ -61,7 +62,20 @@ func run() error {
 	bmcClient.DiscoverCapabilities()
 	wolClient := bmc.NewWoLClient(cfg.WoL)
 
-	srv := server.New(cfg, store, bmcClient, wolClient, assets, version)
+	var upd *updater.Updater
+	if cfg.Update.IsEnabled() && !updater.InContainer() && version != "dev" {
+		var err error
+		upd, err = updater.New(version, cfg.Update.IsAutoApply(), cancel)
+		if err != nil {
+			slog.Warn("auto-updater disabled", "error", err)
+		}
+	}
+
+	srv := server.New(cfg, store, bmcClient, wolClient, assets, version, upd)
+
+	if upd != nil {
+		go upd.Run(ctx)
+	}
 
 	slog.Info("starting power panel", "version", version, "addr", *addr, "server", cfg.Server.Name)
 	return srv.ListenAndServe(ctx, *addr)

@@ -1,0 +1,128 @@
+package views
+
+import (
+	"github.com/camjac251/power-panel/components/button"
+	"github.com/camjac251/power-panel/components/dialog"
+	"github.com/camjac251/power-panel/components/icon"
+	"github.com/camjac251/power-panel/internal/updater"
+)
+
+templ UpdateBanner(status updater.UpdateStatus) {
+	if status.Applying {
+		<div class="flex items-center justify-center gap-2 py-2 text-sm text-warning" role="status" aria-live="polite">
+			@icon.LoaderCircle(icon.Props{Class: "w-3.5 h-3.5 animate-spin shrink-0"})
+			<span>Updating to { status.AvailableVersion }...</span>
+		</div>
+		@reconnectScript()
+	} else if status.AvailableVersion != "" {
+		<div class="flex items-center justify-center gap-1.5 py-2 text-sm" role="status" aria-live="polite">
+			<span class="text-muted-foreground/50">{ status.CurrentVersion } &rarr;</span>
+			@dialog.Trigger(dialog.TriggerProps{For: "update-dialog"}) {
+				<button
+					type="button"
+					class="text-sm text-primary/80 hover:text-primary rounded px-1 py-0.5 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring transition-colors"
+					aria-label={ "Update to " + status.AvailableVersion }
+				>
+					{ status.AvailableVersion } available
+				</button>
+			}
+		</div>
+	} else if status.Error != "" {
+		<div class="flex items-center justify-center gap-2 py-2 text-sm">
+			<span class="text-muted-foreground/30">{ status.CurrentVersion }</span>
+			<button
+				type="button"
+				class="text-sm text-muted-foreground/50 hover:text-muted-foreground rounded px-1 py-0.5 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring transition-colors"
+				hx-post="/api/update/check"
+				hx-target="#update-status"
+				hx-swap="innerHTML"
+				aria-label="Retry update check"
+			>
+				Retry
+			</button>
+		</div>
+	} else if status.Checking {
+		<div class="flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground/40" role="status" aria-live="polite">
+			@icon.LoaderCircle(icon.Props{Class: "w-3.5 h-3.5 animate-spin shrink-0"})
+			<span>Checking...</span>
+		</div>
+	} else if status.InContainer {
+		<p class="text-center text-sm text-muted-foreground/30 py-2">{ status.CurrentVersion }</p>
+	} else {
+		<button
+			type="button"
+			class="mx-auto flex items-center justify-center text-sm text-muted-foreground/30 hover:text-muted-foreground/50 rounded px-2 py-2 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring transition-colors"
+			hx-post="/api/update/check"
+			hx-target="#update-status"
+			hx-swap="innerHTML"
+			aria-label={ "Version " + status.CurrentVersion + ", check for updates" }
+		>
+			{ status.CurrentVersion }
+		</button>
+	}
+}
+
+templ UpdateDialog() {
+	@dialog.Dialog(dialog.Props{ID: "update-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "max-w-sm rounded-2xl"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Update Available
+				}
+				@dialog.Description(dialog.DescriptionProps{Class: "text-base"}) {
+					A new version is ready to install. The server will restart briefly during the update.
+				}
+			}
+			@dialog.Footer() {
+				@dialog.Close() {
+					@button.Button(button.Props{
+						Variant: button.VariantSecondary,
+						Type:    button.TypeButton,
+						Class:   "min-h-[44px] text-sm rounded-xl",
+					}) {
+						Later
+					}
+				}
+				@dialog.Close() {
+					@button.Button(button.Props{
+						Variant: button.VariantDefault,
+						Type:    button.TypeButton,
+						Class:   "min-h-[44px] text-sm rounded-xl",
+						Attributes: templ.Attributes{
+							"hx-post":   "/api/update/apply",
+							"hx-target": "#update-status",
+							"hx-swap":   "innerHTML",
+						},
+					}) {
+						@icon.Download(icon.Props{Class: "w-4 h-4 mr-1.5"})
+						Update now
+					}
+				}
+			}
+		}
+	}
+}
+
+// reconnectScript polls /api/health after an update is applied. Once the server
+// comes back, it reloads the page so the user sees the new version.
+templ reconnectScript() {
+	<script>
+		(function() {
+			var attempts = 0;
+			var interval = setInterval(function() {
+				if (++attempts > 90) {
+					clearInterval(interval);
+					var el = document.getElementById("update-status");
+					if (el) el.innerHTML = '<p class="text-sm text-destructive text-center py-2" role="alert">Restart failed. Check the server.</p>';
+					return;
+				}
+				fetch("/api/health").then(function(r) {
+					if (r.ok) {
+						clearInterval(interval);
+						window.location.reload();
+					}
+				}).catch(function() {});
+			}, 2000);
+		})();
+	</script>
+}

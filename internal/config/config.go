@@ -13,7 +13,21 @@ type Config struct {
 	IPMI    IPMIConfig   `yaml:"ipmi"`
 	WoL     WoLConfig    `yaml:"wol"`
 	Power   PowerConfig  `yaml:"power"`
+	Update  UpdateConfig `yaml:"update"`
 	DataDir string       `yaml:"data_dir"`
+}
+
+type UpdateConfig struct {
+	Enabled   *bool `yaml:"enabled"`    // check for updates (default: true)
+	AutoApply *bool `yaml:"auto_apply"` // apply updates automatically (default: true)
+}
+
+func (u UpdateConfig) IsEnabled() bool {
+	return u.Enabled == nil || *u.Enabled
+}
+
+func (u UpdateConfig) IsAutoApply() bool {
+	return u.AutoApply == nil || *u.AutoApply
 }
 
 type ServerConfig struct {

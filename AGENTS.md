@@ -32,7 +32,8 @@ internal/
   config/            YAML config + IPMI_PASS from env
   db/                SQLite (modernc, pure Go) - power event audit log
   server/            HTTP routes, SSE handler, power action handlers
-views/               templ templates (home, layout, helpers)
+  updater/           Self-update via GitHub Releases + digest verification
+views/               templ templates (home, layout, update, helpers)
 components/          templUI components (button, dialog, icon, popover, toast, tooltip)
 utils/               templUI utility (TwMerge, ComponentScript)
 assets/              Embedded via go:embed (fonts, JS, generated CSS)
@@ -49,6 +50,7 @@ input.css            Tailwind v4 source (theme, fonts, custom utilities)
 - **Icons**: Use `icon.IconName()` from `components/icon` (Lucide SVGs, cached in memory). Never inline SVGs.
 - **BMC cache**: `bmc.Cache` deduplicates BMC requests from concurrent SSE clients. One BMC call per poll interval regardless of client count. Invalidated after power actions. SSE reads from cache; API endpoints hit BMC directly.
 - **Tailscale auth**: Identity headers (`Tailscale-User-Login`) trusted only from loopback (Tailscale Serve proxy). Non-local requests use the WhoIs unix socket. No login page needed.
+- **Auto-updater**: Checks GitHub Releases every 6h (1 min delay after startup). Downloads asset, verifies SHA256 against GitHub's immutable asset digest API field, replaces binary via `update.Apply` (atomic rename with rollback). Exits cleanly for systemd restart. Disabled in containers (Docker/Podman) and dev mode (`version=dev`). Configurable via `update.enabled` and `update.auto_apply` in config.yaml.
 
 ## Prerequisites
 
@@ -69,3 +71,4 @@ Sensors use dedicated SSE swap targets to avoid resetting the "All sensors" deta
 - **BMC ResetTypes**: The target BMC supports On, ForceOff, ForceRestart, GracefulShutdown. It rejects PowerCycle and GracefulRestart.
 - **Transition states**: PoweringOn/ShuttingDown/Restarting are set by the server (not BMC) for immediate UI feedback. Auto-clear when BMC confirms or after 2 min timeout.
 - **Ping host in dev**: TCP port 22 check for OS reachability. Disabled in WSL dev (can't route to server VLAN). Enable via `server.ping_host` in config.
+- **GitHub asset digests**: The updater verifies downloads against GitHub's server-computed SHA256 digest (available since June 2025 on the releases API). No checksums.txt file needed. The digest is immutable and computed at upload time.
