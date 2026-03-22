@@ -5,10 +5,13 @@
 **Remote server power management from your phone**
 
 [![CI](https://github.com/camjac251/power-panel/actions/workflows/ci.yml/badge.svg)](https://github.com/camjac251/power-panel/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/camjac251/power-panel)](https://github.com/camjac251/power-panel/releases/latest)
 [![Go](https://img.shields.io/badge/go-1.26+-00ADD8.svg)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Single-binary web UI for Redfish/WoL power control, live sensor monitoring, and audit logging. Deploy it anywhere you can reach your BMC.
+Single-binary web UI for Redfish/WoL power control, live sensor monitoring, and audit logging.
+<br>
+Deploy it anywhere you can reach your BMC.
 
 [Features](#features) · [Quick Start](#quick-start) · [Configuration](#configuration) · [Architecture](#architecture)
 
@@ -60,17 +63,17 @@ The page loads instantly with no BMC blocking. SSE fills in live power state and
 
 ### Download
 
-Grab a pre-built binary from [Releases](../../releases) for your platform:
+Grab a binary from the [latest release](https://github.com/camjac251/power-panel/releases/latest):
 
-| Binary | Devices |
-|--------|---------|
-| `power-panel-linux-amd64` | NUCs, mini PCs, x86 servers |
-| `power-panel-linux-arm64` | Pi 3/4/5, Rock, Odroid, Pine64 |
-| `power-panel-linux-armv7` | Pi Zero 2 W (32-bit), older Pi 3 |
-| `power-panel-linux-armv6` | Pi Zero W (original) |
-| `power-panel-darwin-arm64` | Apple Silicon Macs |
-| `power-panel-darwin-amd64` | Intel Macs |
-| `power-panel-windows-amd64.exe` | Windows PCs |
+| Platform | Binary | Devices |
+|----------|--------|---------|
+| Linux x64 | [`power-panel-linux-amd64`](https://github.com/camjac251/power-panel/releases/latest/download/power-panel-linux-amd64) | NUCs, mini PCs, x86 servers |
+| Linux ARM64 | [`power-panel-linux-arm64`](https://github.com/camjac251/power-panel/releases/latest/download/power-panel-linux-arm64) | Pi 3/4/5, Rock, Odroid, Pine64 |
+| Linux ARMv7 | [`power-panel-linux-armv7`](https://github.com/camjac251/power-panel/releases/latest/download/power-panel-linux-armv7) | Pi Zero 2 W (32-bit), older Pi 3 |
+| Linux ARMv6 | [`power-panel-linux-armv6`](https://github.com/camjac251/power-panel/releases/latest/download/power-panel-linux-armv6) | Pi Zero W (original) |
+| macOS ARM64 | [`power-panel-darwin-arm64`](https://github.com/camjac251/power-panel/releases/latest/download/power-panel-darwin-arm64) | Apple Silicon Macs |
+| macOS x64 | [`power-panel-darwin-amd64`](https://github.com/camjac251/power-panel/releases/latest/download/power-panel-darwin-amd64) | Intel Macs |
+| Windows x64 | [`power-panel-windows-amd64.exe`](https://github.com/camjac251/power-panel/releases/latest/download/power-panel-windows-amd64.exe) | Windows PCs |
 
 ### Prerequisites
 
