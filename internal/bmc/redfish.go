@@ -56,6 +56,7 @@ type Client struct {
 	mu              sync.Mutex
 	client          *gofish.APIClient
 	supportedResets []string
+	firmwareVersion string
 }
 
 func NewClient(cfg config.IPMIConfig) *Client {
@@ -134,11 +135,27 @@ func (c *Client) DiscoverCapabilities() {
 		c.supportedResets = append(c.supportedResets, string(rt))
 	}
 
+	// Cache BMC firmware version for the UI footer. Only changes after a flash,
+	// at which point we restart anyway, so once-at-startup is sufficient.
+	managers, mgrErr := client.Service.Managers()
+	if mgrErr == nil && len(managers) > 0 {
+		c.firmwareVersion = managers[0].FirmwareVersion
+	}
+
 	slog.Info("BMC capabilities discovered",
 		"supported_resets", c.supportedResets,
 		"model", sys.Model,
 		"manufacturer", sys.Manufacturer,
+		"firmware", c.firmwareVersion,
 	)
+}
+
+// FirmwareVersion returns the BMC firmware version cached during
+// DiscoverCapabilities. Empty string if discovery failed.
+func (c *Client) FirmwareVersion() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.firmwareVersion
 }
 
 // SupportsReset returns true if the BMC supports a given reset type.

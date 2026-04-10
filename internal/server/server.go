@@ -256,6 +256,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		BMCURL:       s.cfg.Server.BMCURL,
 		NoMachineURL: s.cfg.Server.NoMachineURL,
 		Version:      s.version,
+		BMCFirmware:  s.bmc.FirmwareVersion(),
 		Status:       bmc.Status{PowerState: bmc.PowerUnknown},
 		Events:       events,
 		Caps:         s.capabilities(),

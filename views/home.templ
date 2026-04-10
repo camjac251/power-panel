@@ -24,13 +24,14 @@ type HomeData struct {
 	BMCURL       string
 	NoMachineURL string
 	Version      string
+	BMCFirmware  string
 	Status       bmc.Status
 	Events       []db.PowerEvent
 	Caps         Capabilities
 }
 
 templ Home(data HomeData) {
-	@Layout(data.ServerName, data.Version) {
+	@Layout(data.ServerName, data.Version, data.BMCFirmware) {
 		<div id="sse-container" hx-ext="sse" sse-connect="/api/sse">
 			<div id="sse-error" class="hidden mb-3 px-4 py-2.5 rounded-xl bg-warning/10 text-warning text-sm text-center ring-1 ring-warning/20 ring-inset" role="alert">
 				Connection lost. Reconnecting...
@@ -42,6 +43,9 @@ templ Home(data HomeData) {
 					<div class="min-w-0">
 						<h1 class="text-base font-semibold text-foreground truncate">{ data.ServerName }</h1>
 						<p class="text-sm text-muted-foreground mt-0.5">{ data.Description }</p>
+						if data.BMCFirmware != "" {
+							<p class="text-xs text-muted-foreground/40 font-mono mt-1 tabular-nums">BMC { data.BMCFirmware }</p>
+						}
 					</div>
 					<div id="status-badge" sse-swap="status" hx-swap="innerHTML" class="shrink-0 ml-4 mt-0.5">
 						@StatusBadge(data.Status)
