@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/camjac251/power-panel/internal/bmc"
+	"github.com/camjac251/power-panel/internal/db"
 	"github.com/camjac251/power-panel/views"
 )
 
@@ -70,9 +71,9 @@ func (s *Server) sendStatusEventWithTransition(w http.ResponseWriter, flusher ht
 	realState := status.PowerState
 
 	// Apply transition override if active
-	if t, age := s.getTransition(); t != "" { //nolint:nestif // transition state machine is inherently branchy
+	if tc := s.getTransition(); tc.State != "" { //nolint:nestif // transition state machine is inherently branchy
 		confirmed := false
-		switch t {
+		switch tc.State {
 		case bmc.PoweringOn:
 			confirmed = realState == bmc.PowerOn
 		case bmc.ShuttingDown:
@@ -88,7 +89,7 @@ func (s *Server) sendStatusEventWithTransition(w http.ResponseWriter, flusher ht
 			confirmed = realState == bmc.PowerOn && prevState == bmc.PowerOff
 			// If the reboot was faster than the poll interval, we never saw PowerOff.
 			// Confirm if the machine is on and enough time has passed for the restart.
-			if !confirmed && realState == bmc.PowerOn && age > 15*time.Second {
+			if !confirmed && realState == bmc.PowerOn && tc.Age > 15*time.Second {
 				confirmed = true
 			}
 			if err != nil {
@@ -96,11 +97,39 @@ func (s *Server) sendStatusEventWithTransition(w http.ResponseWriter, flusher ht
 				status.PowerState = bmc.PowerOff
 			}
 		}
-		slog.Info("SSE transition check", "transition", t, "realState", realState, "prevState", prevState, "confirmed", confirmed, "bmcErr", err != nil)
-		if confirmed {
+		// Check the BMC task for late-arriving failures. Some firmware accepts
+		// the IPMI command but later marks the task as Exception. Without this
+		// check the UI would show the transition state until the boot timeout.
+		taskFailed := false
+		if !confirmed && tc.TaskURL != "" {
+			info, taskErr := s.bmc.GetTaskInfo(tc.TaskURL)
+			if taskErr != nil {
+				slog.Debug("could not poll task state", "task_url", tc.TaskURL, "error", taskErr)
+			} else if info.State == "Exception" || info.State == "Killed" {
+				slog.Warn("BMC task reported failure",
+					"action", tc.Action,
+					"task_url", tc.TaskURL,
+					"state", info.State,
+					"status", info.Status,
+					"message", info.Message,
+				)
+				ev := db.PowerEvent{
+					Action:    tc.Action,
+					UserLogin: tc.User,
+					Success:   false,
+					ErrorMsg:  fmt.Sprintf("BMC task %s: %s", info.State, info.Message),
+				}
+				if logErr := s.store.LogEvent(r.Context(), ev); logErr != nil {
+					slog.Error("failed to log task failure event", "error", logErr)
+				}
+				taskFailed = true
+			}
+		}
+		slog.Info("SSE transition check", "transition", tc.State, "realState", realState, "prevState", prevState, "confirmed", confirmed, "task_failed", taskFailed, "bmcErr", err != nil)
+		if confirmed || taskFailed {
 			s.clearTransition()
 		} else {
-			status.PowerState = t
+			status.PowerState = tc.State
 		}
 	}
 

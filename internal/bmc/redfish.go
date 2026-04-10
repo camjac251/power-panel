@@ -2,6 +2,7 @@ package bmc
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -31,6 +32,15 @@ type Status struct {
 	PowerState PowerState
 	Health     string
 	Reachable  bool // OS-level reachability (ping/TCP check)
+}
+
+// TaskInfo is the subset of a Redfish Task resource needed to detect failures.
+// State values: New, Pending, Running, Completed, Exception, Killed, Suspended.
+// Status values: OK, Warning, Critical.
+type TaskInfo struct {
+	State   string
+	Status  string
+	Message string // most recent message, useful for surfacing failures
 }
 
 type SensorData struct {
@@ -205,32 +215,36 @@ func (c *Client) GetStatus() (Status, error) {
 	}, nil
 }
 
-func (c *Client) PowerOn() error {
+// PowerOn returns a Redfish task monitor URL (empty if the BMC didn't issue one)
+// and any error from the BMC. The task URL can be polled via GetTaskInfo to
+// check whether the action actually took effect; some BMC firmware accepts the
+// IPMI command but reports an Exception task afterwards.
+func (c *Client) PowerOn() (string, error) {
 	return c.resetAction(schemas.OnResetType)
 }
 
-func (c *Client) PowerOff() error {
+func (c *Client) PowerOff() (string, error) {
 	return c.resetAction(schemas.ForceOffResetType)
 }
 
 // GracefulShutdown sends an ACPI shutdown signal to the OS.
-func (c *Client) GracefulShutdown() error {
+func (c *Client) GracefulShutdown() (string, error) {
 	return c.resetAction(schemas.GracefulShutdownResetType)
 }
 
 // PowerCycle performs a ForceRestart (immediate reboot).
 // This BMC does not support PowerCycle; ForceRestart is the closest equivalent.
-func (c *Client) PowerCycle() error {
+func (c *Client) PowerCycle() (string, error) {
 	return c.resetAction(schemas.ForceRestartResetType)
 }
 
-func (c *Client) resetAction(resetType schemas.ResetType) error {
+func (c *Client) resetAction(resetType schemas.ResetType) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	client, err := c.session()
 	if err != nil {
-		return fmt.Errorf("connecting to BMC: %w", err)
+		return "", fmt.Errorf("connecting to BMC: %w", err)
 	}
 
 	systems, err := client.Service.Systems()
@@ -238,24 +252,66 @@ func (c *Client) resetAction(resetType schemas.ResetType) error {
 		c.disconnect()
 		client, err = c.session()
 		if err != nil {
-			return fmt.Errorf("reconnecting to BMC: %w", err)
+			return "", fmt.Errorf("reconnecting to BMC: %w", err)
 		}
 		systems, err = client.Service.Systems()
 		if err != nil {
 			c.disconnect()
-			return fmt.Errorf("getting systems: %w", err)
+			return "", fmt.Errorf("getting systems: %w", err)
 		}
 		if len(systems) == 0 {
 			c.disconnect()
-			return fmt.Errorf("BMC returned no systems")
+			return "", fmt.Errorf("BMC returned no systems")
 		}
 	}
 
-	if _, err = systems[0].Reset(resetType); err != nil {
+	taskMonitor, err := systems[0].Reset(resetType)
+	if err != nil {
 		c.disconnect()
-		return fmt.Errorf("%s: %w", resetType, err)
+		return "", fmt.Errorf("%s: %w", resetType, err)
 	}
-	return nil
+	if taskMonitor != nil {
+		return taskMonitor.TaskMonitor, nil
+	}
+	return "", nil
+}
+
+// GetTaskInfo fetches a Redfish task by its URL and returns its state.
+// Used to detect cases where the BMC accepts the IPMI command but the task
+// later transitions to Exception.
+func (c *Client) GetTaskInfo(taskURL string) (TaskInfo, error) {
+	if taskURL == "" {
+		return TaskInfo{}, fmt.Errorf("task URL is empty")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	client, err := c.session()
+	if err != nil {
+		return TaskInfo{}, fmt.Errorf("connecting to BMC: %w", err)
+	}
+
+	resp, err := client.Get(taskURL)
+	if err != nil {
+		return TaskInfo{}, fmt.Errorf("fetching task: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var raw struct {
+		TaskState  string `json:"TaskState"`
+		TaskStatus string `json:"TaskStatus"`
+		Messages   []struct {
+			Message string `json:"Message"`
+		} `json:"Messages"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return TaskInfo{}, fmt.Errorf("decoding task: %w", err)
+	}
+	info := TaskInfo{State: raw.TaskState, Status: raw.TaskStatus}
+	if len(raw.Messages) > 0 {
+		info.Message = raw.Messages[len(raw.Messages)-1].Message
+	}
+	return info, nil
 }
 
 //nolint:gocognit // sensor parsing across multiple Redfish resource types

@@ -33,9 +33,12 @@ type Server struct {
 	mu         sync.Mutex
 
 	// Transition state for immediate UI feedback
-	transition     bmc.PowerState
-	transitionTime time.Time
-	transitionMu   sync.Mutex
+	transition        bmc.PowerState
+	transitionTime    time.Time
+	transitionTaskURL string // Redfish task URL for the in-flight power action
+	transitionAction  string // logical action name (e.g. "power_off") for failure logging
+	transitionUser    string // tailscale login that triggered the action
+	transitionMu      sync.Mutex
 
 	// Broadcast channel to wake SSE handlers immediately
 	notifyCh chan struct{}
@@ -122,9 +125,11 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	return nil
 }
 
-// powerOn uses Redfish first, then sends WoL as backup.
-func (s *Server) powerOn() error {
-	redfishErr := s.bmc.PowerOn()
+// powerOn uses Redfish first, then sends WoL as backup. Returns the Redfish
+// task monitor URL (empty if Redfish failed) so the caller can poll for
+// late-arriving exceptions reported by the BMC.
+func (s *Server) powerOn() (string, error) {
+	taskURL, redfishErr := s.bmc.PowerOn()
 	if redfishErr != nil {
 		slog.Warn("Redfish power on failed, sending WoL as fallback", "error", redfishErr)
 	}
@@ -135,9 +140,9 @@ func (s *Server) powerOn() error {
 	}
 	// Succeed if either method worked
 	if redfishErr != nil && wolErr != nil {
-		return redfishErr
+		return "", redfishErr
 	}
-	return nil
+	return taskURL, nil
 }
 
 func (s *Server) checkCooldown() error {
@@ -336,11 +341,17 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // setTransition sets the transitioning power state and notifies SSE clients.
-func (s *Server) setTransition(state bmc.PowerState) {
-	slog.Info("transition set", "state", state)
+// taskURL is the Redfish task monitor URL returned by the BMC, used to detect
+// late-arriving Exception states. action and user are recorded so SSE can log
+// a failure event with proper attribution if the task fails.
+func (s *Server) setTransition(state bmc.PowerState, taskURL, action, user string) {
+	slog.Info("transition set", "state", state, "task_url", taskURL)
 	s.transitionMu.Lock()
 	s.transition = state
 	s.transitionTime = time.Now()
+	s.transitionTaskURL = taskURL
+	s.transitionAction = action
+	s.transitionUser = user
 	s.transitionMu.Unlock()
 	s.bmcCache.Invalidate()
 	s.notifySSE()
@@ -351,23 +362,45 @@ func (s *Server) clearTransition() {
 	slog.Info("transition cleared")
 	s.transitionMu.Lock()
 	s.transition = ""
+	s.transitionTaskURL = ""
+	s.transitionAction = ""
+	s.transitionUser = ""
 	s.transitionMu.Unlock()
 	s.notifySSE()
 }
 
-// getTransition returns the current transition state and its age, clearing it if expired.
-func (s *Server) getTransition() (bmc.PowerState, time.Duration) {
+// transitionContext bundles transition state for SSE polling.
+type transitionContext struct {
+	State   bmc.PowerState
+	Age     time.Duration
+	TaskURL string
+	Action  string
+	User    string
+}
+
+// getTransition returns the current transition state along with its task URL
+// and metadata. It clears the transition if it has aged past the boot timeout.
+func (s *Server) getTransition() transitionContext {
 	s.transitionMu.Lock()
 	defer s.transitionMu.Unlock()
 	if s.transition == "" {
-		return "", 0
+		return transitionContext{}
 	}
 	age := time.Since(s.transitionTime)
 	if age > s.cfg.Power.BootTimeout {
 		s.transition = ""
-		return "", 0
+		s.transitionTaskURL = ""
+		s.transitionAction = ""
+		s.transitionUser = ""
+		return transitionContext{}
 	}
-	return s.transition, age
+	return transitionContext{
+		State:   s.transition,
+		Age:     age,
+		TaskURL: s.transitionTaskURL,
+		Action:  s.transitionAction,
+		User:    s.transitionUser,
+	}
 }
 
 // notifySSE wakes all SSE handlers to push an immediate update.
@@ -401,7 +434,7 @@ func transitionForAction(action string) bmc.PowerState {
 	}
 }
 
-func (s *Server) handlePowerAction(action string, fn func() error) http.HandlerFunc {
+func (s *Server) handlePowerAction(action string, fn func() (string, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := s.checkCooldown(); err != nil {
 			w.Header().Set("HX-Retarget", "#toast-container")
@@ -418,7 +451,12 @@ func (s *Server) handlePowerAction(action string, fn func() error) http.HandlerF
 
 		slog.Info("power action requested", "action", action, "user", login)
 
-		dur, err := bmc.TimedCall(fn)
+		var taskURL string
+		dur, err := bmc.TimedCall(func() error {
+			var callErr error
+			taskURL, callErr = fn()
+			return callErr
+		})
 
 		ev := db.PowerEvent{
 			Action:     action,
@@ -448,10 +486,10 @@ func (s *Server) handlePowerAction(action string, fn func() error) http.HandlerF
 			return
 		}
 
-		slog.Info("power action completed", "action", action, "user", login, "duration_ms", dur.Milliseconds())
+		slog.Info("power action completed", "action", action, "user", login, "duration_ms", dur.Milliseconds(), "task_url", taskURL)
 
 		if ts := transitionForAction(action); ts != "" {
-			s.setTransition(ts)
+			s.setTransition(ts, taskURL, action, login)
 		}
 
 		_ = views.ToastSuccess(fmt.Sprintf("%s command sent", views.FormatAction(action))).Render(r.Context(), w)

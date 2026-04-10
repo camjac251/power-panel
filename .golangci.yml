@@ -183,6 +183,11 @@ linters:
         linters:
           - gosec
         text: 'G704'
+      # slog structured key-value pairs are not injectable log lines
+      - path: 'internal/server/'
+        linters:
+          - gosec
+        text: 'G706'
 
 output:
   formats:

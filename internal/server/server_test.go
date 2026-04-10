@@ -147,20 +147,30 @@ func TestTransitionGetSetClear(t *testing.T) {
 	s := testServer()
 
 	// Initially empty
-	if got, _ := s.getTransition(); got != "" {
-		t.Errorf("initial transition = %q, want empty", got)
+	if tc := s.getTransition(); tc.State != "" {
+		t.Errorf("initial transition = %q, want empty", tc.State)
 	}
 
 	// Set and get
-	s.setTransition(bmc.PoweringOn)
-	if got, _ := s.getTransition(); got != bmc.PoweringOn {
-		t.Errorf("after set: transition = %q, want %q", got, bmc.PoweringOn)
+	s.setTransition(bmc.PoweringOn, "/redfish/v1/TaskService/Tasks/1", "power_on", "tester")
+	tc := s.getTransition()
+	if tc.State != bmc.PoweringOn {
+		t.Errorf("after set: transition = %q, want %q", tc.State, bmc.PoweringOn)
+	}
+	if tc.TaskURL != "/redfish/v1/TaskService/Tasks/1" {
+		t.Errorf("after set: task URL = %q, want %q", tc.TaskURL, "/redfish/v1/TaskService/Tasks/1")
+	}
+	if tc.Action != "power_on" {
+		t.Errorf("after set: action = %q, want %q", tc.Action, "power_on")
+	}
+	if tc.User != "tester" {
+		t.Errorf("after set: user = %q, want %q", tc.User, "tester")
 	}
 
 	// Clear and get
 	s.clearTransition()
-	if got, _ := s.getTransition(); got != "" {
-		t.Errorf("after clear: transition = %q, want empty", got)
+	if tc := s.getTransition(); tc.State != "" {
+		t.Errorf("after clear: transition = %q, want empty", tc.State)
 	}
 }
 
@@ -174,8 +184,8 @@ func TestTransitionExpiry(t *testing.T) {
 	s.transitionMu.Unlock()
 
 	// Should auto-clear after 2 minutes
-	if got, _ := s.getTransition(); got != "" {
-		t.Errorf("expired transition = %q, want empty", got)
+	if tc := s.getTransition(); tc.State != "" {
+		t.Errorf("expired transition = %q, want empty", tc.State)
 	}
 }
 
@@ -242,7 +252,7 @@ func TestSSETransitionOverride(t *testing.T) {
 	s := testServer()
 
 	// Set a transition state
-	s.setTransition(bmc.PoweringOn)
+	s.setTransition(bmc.PoweringOn, "", "power_on", "tester")
 
 	rec := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
 	req := httptest.NewRequest(http.MethodGet, "/api/sse", http.NoBody)
@@ -289,9 +299,9 @@ func TestPowerActionHandler(t *testing.T) {
 
 	// Test successful power action
 	called := false
-	handler := s.handlePowerAction("power_on", func() error {
+	handler := s.handlePowerAction("power_on", func() (string, error) {
 		called = true
-		return nil
+		return "", nil
 	})
 
 	rec := httptest.NewRecorder()
@@ -347,7 +357,7 @@ func TestPowerActionCooldown(t *testing.T) {
 		notifyCh: make(chan struct{}),
 	}
 
-	handler := s.handlePowerAction("power_on", func() error { return nil })
+	handler := s.handlePowerAction("power_on", func() (string, error) { return "", nil })
 
 	// First request succeeds
 	rec := httptest.NewRecorder()
@@ -396,8 +406,8 @@ func TestPowerActionFailure(t *testing.T) {
 		notifyCh: make(chan struct{}),
 	}
 
-	handler := s.handlePowerAction("power_off", func() error {
-		return fmt.Errorf("BMC connection refused")
+	handler := s.handlePowerAction("power_off", func() (string, error) {
+		return "", fmt.Errorf("BMC connection refused")
 	})
 
 	rec := httptest.NewRecorder()
